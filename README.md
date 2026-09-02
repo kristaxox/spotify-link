@@ -30,7 +30,7 @@ sudo ./install.sh
 
 - **AirPlay 1 & 2** via [shairport-sync](https://github.com/mikebrady/shairport-sync)
 - **Spotify Connect** via [Raspotify](https://github.com/dtcooper/raspotify) (librespot)
-- **PipeWire** audio mixing so both services can stay running
+- **ALSA dmix** audio mixing so both services can share one output on headless Ubuntu Server
 - **systemd** services that start on boot and restart on failure
 - **Avahi/mDNS** so devices discover the speaker automatically on the LAN
 

@@ -10,7 +10,8 @@ Phone / Mac / iPad                Raspberry Pi (Ubuntu Server)
 │  AirPlay        │─── mDNS ────▶│  shairport-sync              │
 │  (Apple Music,  │              │         │                    │
 │   Podcasts…)    │              │         ▼                    │
-└─────────────────┘              │  PipeWire (audio mixer)        │
+└─────────────────┘              │         ▼                    │
+                                 │  ALSA dmix (software mixer)  │
                                  │         │                    │
 ┌─────────────────┐              │         ▼                    │
 │  Spotify app    │─── mDNS ────▶│  Raspotify (librespot)       │
@@ -83,11 +84,12 @@ After reboot, open Spotify → speaker icon, or an Apple device → AirPlay menu
 
 | Service | Role |
 |---------|------|
-| `pipewire` / `pipewire-pulse` | Audio routing; lets AirPlay and Spotify share one output |
 | `shairport-sync` | AirPlay receiver |
 | `raspotify` | Spotify Connect receiver |
 | `avahi-daemon` | mDNS discovery |
 | `unattended-upgrades` | Security updates without manual intervention |
+
+Audio is routed through **ALSA dmix** (configured in `/etc/asound.conf`), which lets both streaming services use the same output on headless Ubuntu Server without a desktop PipeWire session.
 
 ### Resilience after power loss
 
@@ -109,8 +111,7 @@ If you prefer to install by hand instead of using `install.sh`:
 ### Audio stack
 
 ```bash
-sudo apt install -y alsa-utils pipewire pipewire-pulse wireplumber \
-  avahi-daemon shairport-sync
+sudo apt install -y alsa-utils avahi-daemon shairport-sync
 ```
 
 ### Raspotify (Spotify Connect)
@@ -132,7 +133,8 @@ Edit `/etc/raspotify/conf`:
 
 ```ini
 LIBRESPOT_NAME="Living Room Stereo"
-LIBRESPOT_BACKEND="pulseaudio"
+LIBRESPOT_BACKEND="alsa"
+LIBRESPOT_DEVICE="default"
 LIBRESPOT_DEVICE_TYPE="speaker"
 LIBRESPOT_BITRATE="320"
 LIBRESPOT_INITIAL_VOLUME="50"
@@ -145,18 +147,18 @@ Edit `/etc/shairport-sync.conf` (see `config/shairport-sync.conf` in this repo).
 ```conf
 general = {
   name = "Living Room Stereo";
-  output_backend = "pa";   // PulseAudio / PipeWire
+  output_backend = "alsa";
 };
 
-pa = {
-  application_name = "Living Room Stereo";
+alsa = {
+  output_device = "default";
 };
 ```
 
 Enable and start:
 
 ```bash
-sudo systemctl enable --now pipewire pipewire-pulse shairport-sync raspotify avahi-daemon
+sudo systemctl enable --now shairport-sync raspotify avahi-daemon
 ```
 
 ## 5. Choosing audio output
@@ -173,14 +175,7 @@ aplay -l
 | USB DAC | `USB Audio Device` | **Best** option for a stereo AUX input |
 | HDMI | `vc4-hdmi` | Only if the stereo accepts HDMI audio somehow |
 
-Set default in `/etc/asound.conf` (installer does this for you):
-
-```conf
-defaults.pcm.card 1
-defaults.ctl.card 1
-```
-
-Replace `1` with your card number from `aplay -l`.
+Set default in `/etc/asound.conf` (installer configures dmix for you). Replace the card number in the `hw:X,0` line with your card from `aplay -l`.
 
 ### Pi 3.5 mm jack on Pi 4 (if silent)
 
@@ -196,7 +191,7 @@ Reboot after changing firmware config.
 
 ```bash
 # All services active
-systemctl is-active pipewire pipewire-pulse shairport-sync raspotify avahi-daemon
+systemctl is-active shairport-sync raspotify avahi-daemon
 
 # mDNS name resolves (from another machine)
 avahi-resolve -n stereo-link.local
@@ -246,10 +241,10 @@ If you already ran the installer and it failed partway through, pull the latest 
 
 ### Only one of AirPlay / Spotify works at a time
 
-Both services must use the **PulseAudio/PipeWire** backend, not raw ALSA. Re-run the installer or confirm:
+Both services should use the **ALSA `default`** device, which routes through dmix in `/etc/asound.conf`. Re-run the installer or confirm:
 
-- shairport-sync: `output_backend = "pa"`
-- raspotify: `LIBRESPOT_BACKEND="pulseaudio"`
+- shairport-sync: `output_backend = "alsa"` and `output_device = "default"`
+- raspotify: `LIBRESPOT_BACKEND="alsa"` and `LIBRESPOT_DEVICE="default"`
 
 ### Poor audio quality from 3.5 mm jack
 
@@ -260,7 +255,6 @@ Use a **USB DAC** (~$10–30). The Pi’s built-in DAC is fine for background mu
 ```bash
 journalctl -u shairport-sync -f
 journalctl -u raspotify -f
-journalctl -u pipewire -f
 ```
 
 ## 8. Security notes

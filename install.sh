@@ -69,9 +69,6 @@ apt-get update -qq
 install_alsa_runtime
 apt-get install -y --no-install-recommends \
   alsa-utils \
-  pipewire \
-  pipewire-pulse \
-  wireplumber \
   avahi-daemon \
   avahi-utils \
   shairport-sync \
@@ -85,9 +82,35 @@ if [[ "${NEW_HOSTNAME}" != "${CURRENT_HOST}" ]]; then
   sed -i "s/${CURRENT_HOST}/${NEW_HOSTNAME}/g" /etc/hosts 2>/dev/null || true
 fi
 
-echo "=== Configuring ALSA default device (card ${ALSA_CARD}) ==="
+echo "=== Configuring ALSA dmix (card ${ALSA_CARD}) ==="
 cat > /etc/asound.conf <<EOF
-# Managed by stereo-link install.sh — default playback device
+# Managed by stereo-link install.sh — dmix lets AirPlay and Spotify share output.
+pcm.!default {
+    type plug
+    slave.pcm "dmixer"
+}
+
+pcm.dmixer {
+    type dmix
+    ipc_key 1024
+    slave {
+        pcm "hw:${ALSA_CARD},0"
+        period_time 0
+        period_size 1024
+        buffer_size 8192
+        rate 44100
+    }
+    bindings {
+        0 0
+        1 1
+    }
+}
+
+ctl.!default {
+    type hw
+    card ${ALSA_CARD}
+}
+
 defaults.pcm.card ${ALSA_CARD}
 defaults.ctl.card ${ALSA_CARD}
 EOF
@@ -115,6 +138,7 @@ fi
 if [[ -f /etc/raspotify/conf ]]; then
   grep -v '^LIBRESPOT_NAME=' /etc/raspotify/conf | \
     grep -v '^LIBRESPOT_BACKEND=' | \
+    grep -v '^LIBRESPOT_DEVICE=' | \
     grep -v '^LIBRESPOT_DEVICE_TYPE=' | \
     grep -v '^LIBRESPOT_BITRATE=' | \
     grep -v '^LIBRESPOT_INITIAL_VOLUME=' > /tmp/raspotify.conf.tmp || true
@@ -124,7 +148,8 @@ fi
 
 cat >> /tmp/raspotify.conf.tmp <<EOF
 LIBRESPOT_NAME="${SPEAKER_NAME}"
-LIBRESPOT_BACKEND="pulseaudio"
+LIBRESPOT_BACKEND="alsa"
+LIBRESPOT_DEVICE="default"
 LIBRESPOT_DEVICE_TYPE="speaker"
 LIBRESPOT_BITRATE="320"
 LIBRESPOT_INITIAL_VOLUME="50"
@@ -161,14 +186,21 @@ Unattended-Upgrade::Remove-Unused-Dependencies "true";
 EOF
 dpkg-reconfigure -f noninteractive unattended-upgrades 2>/dev/null || true
 
+enable_and_start_service() {
+  local svc="$1"
+  if systemctl list-unit-files "${svc}.service" --no-legend 2>/dev/null | grep -q .; then
+    systemctl enable "${svc}"
+    systemctl restart "${svc}"
+  else
+    echo "Warning: ${svc}.service not found, skipping."
+  fi
+}
+
 echo "=== Enabling and starting services ==="
 systemctl daemon-reload
-systemctl enable pipewire pipewire-pulse wireplumber avahi-daemon shairport-sync raspotify
-systemctl restart avahi-daemon
-systemctl restart pipewire pipewire-pulse wireplumber || true
-sleep 2
-systemctl restart shairport-sync
-systemctl restart raspotify
+for svc in avahi-daemon shairport-sync raspotify; do
+  enable_and_start_service "${svc}"
+done
 
 echo ""
 echo "=============================================="
@@ -179,7 +211,7 @@ echo " Hostname     : ${NEW_HOSTNAME} (${NEW_HOSTNAME}.local)"
 echo " ALSA card    : ${ALSA_CARD}"
 echo ""
 echo " Services:"
-for svc in pipewire pipewire-pulse shairport-sync raspotify avahi-daemon; do
+for svc in shairport-sync raspotify avahi-daemon; do
   printf "  %-18s %s\n" "${svc}" "$(systemctl is-active "${svc}" 2>/dev/null || echo unknown)"
 done
 echo ""
