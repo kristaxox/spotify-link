@@ -26,10 +26,47 @@ echo ""
 read -rp "ALSA card number for audio output [0]: " ALSA_CARD
 ALSA_CARD="${ALSA_CARD:-0}"
 
+install_alsa_runtime() {
+  # Ubuntu 24.10+ / Debian Trixie: libasound2 is a virtual package; apt must
+  # install libasound2t64 explicitly before packages that depend on libasound2.
+  if apt-cache show libasound2t64 >/dev/null 2>&1; then
+    apt-get install -y libasound2t64
+    apt-mark manual libasound2t64 >/dev/null 2>&1 || true
+  elif apt-cache show libasound2 >/dev/null 2>&1; then
+    apt-get install -y libasound2
+  fi
+}
+
+install_raspotify() {
+  local arch deb_url tmpdeb
+
+  echo "=== Installing Raspotify (Spotify Connect) ==="
+  install_alsa_runtime
+
+  curl -sSfL https://dtcooper.github.io/raspotify/key.asc -o /usr/share/keyrings/raspotify_key.asc
+  chmod 644 /usr/share/keyrings/raspotify_key.asc
+  echo 'deb [signed-by=/usr/share/keyrings/raspotify_key.asc] https://dtcooper.github.io/raspotify raspotify main' \
+    > /etc/apt/sources.list.d/raspotify.list
+
+  apt-get update -qq
+  if apt-get install -y raspotify; then
+    return 0
+  fi
+
+  echo "Raspotify apt install failed; trying direct .deb download..."
+  arch="$(dpkg --print-architecture)"
+  deb_url="https://dtcooper.github.io/raspotify/raspotify-latest_${arch}.deb"
+  tmpdeb="$(mktemp /tmp/raspotify.XXXXXX.deb)"
+  curl -sSfL "${deb_url}" -o "${tmpdeb}"
+  apt-get install -y "${tmpdeb}"
+  rm -f "${tmpdeb}"
+}
+
 echo ""
 echo "=== Installing packages ==="
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
+install_alsa_runtime
 apt-get install -y --no-install-recommends \
   alsa-utils \
   pipewire \
@@ -63,9 +100,8 @@ for CONFIG in /boot/firmware/config.txt /boot/config.txt; do
   fi
 done
 
-echo "=== Installing Raspotify (Spotify Connect) ==="
 if ! command -v librespot >/dev/null 2>&1 && [[ ! -f /etc/raspotify/conf ]]; then
-  curl -sL https://dtcooper.github.io/raspotify/install.sh | bash
+  install_raspotify
 else
   echo "Raspotify already installed, updating config only."
 fi

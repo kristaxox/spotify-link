@@ -115,9 +115,18 @@ sudo apt install -y alsa-utils pipewire pipewire-pulse wireplumber \
 
 ### Raspotify (Spotify Connect)
 
+On Ubuntu 24.10+ (including Resolute), install the ALSA library explicitly first —
+`libasound2` is a virtual package and the upstream installer can fail without this:
+
 ```bash
-curl -sL https://dtcooper.github.io/raspotify/install.sh | sh
+sudo apt install -y libasound2t64
+curl -sL https://dtcooper.github.io/raspotify/key.asc | sudo tee /usr/share/keyrings/raspotify_key.asc
+echo 'deb [signed-by=/usr/share/keyrings/raspotify_key.asc] https://dtcooper.github.io/raspotify raspotify main' | sudo tee /etc/apt/sources.list.d/raspotify.list
+sudo apt update
+sudo apt install -y raspotify
 ```
+
+Or use `install.sh` from this repo, which handles the `libasound2t64` transition automatically.
 
 Edit `/etc/raspotify/conf`:
 
@@ -212,6 +221,17 @@ sudo systemctl status avahi-daemon shairport-sync raspotify
 - Pi and phone must be on the **same subnet** (guest Wi‑Fi often blocks device-to-device traffic).
 - Some routers isolate wireless clients; Ethernet on the Pi avoids most of this.
 - Firewall: Ubuntu Server default `ufw` is usually inactive; if you enabled it, allow mDNS (UDP 5353) and don’t block local traffic.
+
+### `libasound2` has no installation candidate (Ubuntu 24.10+ / Resolute)
+
+Newer Ubuntu releases renamed ALSA packages for the time64 transition. Fix:
+
+```bash
+sudo apt install -y libasound2t64
+sudo apt install -y raspotify
+```
+
+If you already ran the installer and it failed partway through, pull the latest `install.sh` and re-run it, or run the commands above manually.
 
 ### Spotify shows the speaker but won’t connect
 
